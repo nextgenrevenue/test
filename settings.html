@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin Settings</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <!-- বাংলা ফন্ট যোগ করুন -->
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Bengali:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --primary: #2563eb;
+      --primary-hover: #1d4ed8;
+      --success: #16a34a;
+      --danger: #dc2626;
+      --warning: #f59e0b;
+      --gray: #6b7280;
+      --light-gray: #f3f4f6;
+      --white: #ffffff;
+      --dark: #1f2937;
+    }
+    
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+    
+    body {
+      font-family: 'Inter', 'Noto Sans Bengali', sans-serif;
+      background-color: #f5f7fa;
+      min-height: 100vh;
+      padding-top: 60px; /* হেডার এর জন্য প্যাডিং */
+      /* কম্পোনেন্ট অটো লোড করার জন্য */
+      data-auto-load-components: true;
+    }
+    
+    /* Main Content */
+    .admin-main {
+      padding: 30px;
+      background-color: #f9fafb;
+      min-height: calc(100vh - 60px - 60px); /* হেডার এবং ফুটার বাদ */
+    }
+    
+    .settings-container {
+      max-width: 600px;
+      margin: 0 auto;
+    }
+    
+    .settings-card {
+      background: var(--white);
+      padding: 30px;
+      border-radius: 12px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+      margin-bottom: 20px;
+    }
+    
+    .settings-card h2 {
+      color: var(--dark);
+      margin-bottom: 25px;
+      font-size: 24px;
+      border-bottom: 2px solid var(--light-gray);
+      padding-bottom: 10px;
+      font-family: 'Noto Sans Bengali', sans-serif;
+    }
+    
+    .form-group {
+      margin-bottom: 20px;
+    }
+    
+    .form-group label {
+      display: block;
+      margin-bottom: 8px;
+      font-weight: 600;
+      color: var(--dark);
+      font-family: 'Noto Sans Bengali', sans-serif;
+    }
+    
+    .form-group input {
+      width: 100%;
+      padding: 12px 15px;
+      border: 2px solid #e5e7eb;
+      border-radius: 8px;
+      font-size: 16px;
+      font-family: 'Inter', 'Noto Sans Bengali', sans-serif;
+      transition: all 0.3s ease;
+    }
+    
+    .form-group input:focus {
+      outline: none;
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+    }
+    
+    .form-actions {
+      display: flex;
+      gap: 15px;
+      margin-top: 30px;
+    }
+    
+    .btn {
+      padding: 12px 24px;
+      border: none;
+      border-radius: 8px;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      font-family: 'Inter', 'Noto Sans Bengali', sans-serif;
+    }
+    
+    .btn-primary {
+      background-color: var(--primary);
+      color: var(--white);
+    }
+    
+    .btn-primary:hover {
+      background-color: var(--primary-hover);
+    }
+    
+    .btn-secondary {
+      background-color: var(--light-gray);
+      color: var(--dark);
+    }
+    
+    .alert {
+      padding: 12px 15px;
+      border-radius: 8px;
+      margin-bottom: 20px;
+      font-weight: 500;
+      font-family: 'Noto Sans Bengali', sans-serif;
+    }
+    
+    .alert-success {
+      background-color: #dcfce7;
+      color: var(--success);
+      border: 1px solid #bbf7d0;
+    }
+    
+    .alert-error {
+      background-color: #fee2e2;
+      color: var(--danger);
+      border: 1px solid #fecaca;
+    }
+    
+    .loading {
+      display: inline-block;
+      width: 20px;
+      height: 20px;
+      border: 3px solid rgba(255,255,255,.3);
+      border-radius: 50%;
+      border-top-color: #fff;
+      animation: spin 1s ease-in-out infinite;
+    }
+    
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    /* Mobile Responsive */
+    @media (max-width: 768px) {
+      body {
+        padding-top: 60px;
+      }
+      
+      .admin-main {
+        padding: 20px 15px;
+        min-height: calc(100vh - 60px - 50px);
+      }
+      
+      .settings-card {
+        padding: 20px;
+      }
+      
+      .form-actions {
+        flex-direction: column;
+      }
+      
+      .btn {
+        width: 100%;
+      }
+      
+      /* ল্যান্ডস্কেপ মোডে */
+      @media (orientation: landscape) {
+        body {
+          padding-top: 50px;
+        }
+        
+        .admin-main {
+          min-height: calc(100vh - 50px - 40px);
+        }
+      }
+    }
+
+    @media (max-width: 480px) {
+      .admin-main {
+        padding: 15px 10px;
+      }
+      
+      .settings-card {
+        padding: 15px;
+      }
+    }
+    
+    /* Admin Container */
+    .admin-container {
+      display: flex;
+      min-height: 100vh;
+    }
+    
+    /* Sidebar জন্য স্পেস */
+    .content-wrapper {
+      flex: 1;
+      margin-left: 250px; /* সাইডবারের প্রস্থ */
+      transition: margin-left 0.3s ease;
+    }
+    
+    /* মোবাইলে সাইডবার বাদ */
+    @media (max-width: 768px) {
+      .content-wrapper {
+        margin-left: 0;
+      }
+    }
+  </style>
+</head>
+<body>
+  <!-- কম্পোনেন্ট কন্টেইনার -->
+  <div id="header-container"></div>
+  
+  <div class="admin-container">
+    <!-- সাইডবার কন্টেইনার -->
+    <div id="sidebar-container"></div>
+    
+    <!-- Main Content -->
+    <main class="admin-main content-wrapper">
+      <div id="alertContainer"></div>
+      
+      <div class="settings-container">
+        <div class="settings-card">
+          <h2>Change Admin Credentials</h2>
+          <form id="adminSettingsForm">
+            <div class="form-group">
+              <label for="newUsername">New Username</label>
+              <input type="text" id="newUsername" placeholder="Enter new username" required>
+            </div>
+            
+            <div class="form-group">
+              <label for="newPassword">New Password</label>
+              <input type="password" id="newPassword" placeholder="Enter new password" required>
+            </div>
+            
+            <div class="form-group">
+              <label for="confirmPassword">Confirm Password</label>
+              <input type="password" id="confirmPassword" placeholder="Confirm new password" required>
+            </div>
+            
+            <div class="form-actions">
+              <button type="button" class="btn btn-secondary" onclick="goToDashboard()">Back to Dashboard</button>
+              <button type="submit" class="btn btn-primary" id="saveSettingsBtn">Save Changes</button>
+            </div>
+          </form>
+        </div>
+        
+        <div class="settings-card">
+          <h2>Current Settings</h2>
+          <div id="currentSettings">
+            <p>Loading current credentials...</p>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+  
+  <!-- ফুটার কন্টেইনার -->
+  <div id="footer-container"></div>
+
+  <!-- Firebase SDK -->
+  <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-firestore-compat.js"></script>
+  
+  <!-- কম্পোনেন্ট লাইব্রেরি -->
+  <script src="components-inline.js"></script>
+
+  <script>
+    // Firebase Configuration
+    const firebaseConfig = {
+      apiKey: "AIzaSyCUGkcHFSYVmA0KUSRHhY-ZFFAS6jpJe4M",
+      authDomain: "doctor-appointment-syste-23828.firebaseapp.com",
+      projectId: "doctor-appointment-syste-23828",
+      storageBucket: "doctor-appointment-syste-23828.appspot.com",
+      messagingSenderId: "79600391014",
+      appId: "1:79600391014:web:9688db8bb62f431ae16ea7"
+    };
+
+    let db;
+
+    // Initialize Firebase
+    function initializeFirebase() {
+      try {
+        if (!firebase.apps.length) {
+          firebase.initializeApp(firebaseConfig);
+        }
+        db = firebase.firestore();
+        console.log("✅ Firebase initialized successfully");
+        return true;
+      } catch (error) {
+        console.error("❌ Firebase initialization error:", error);
+        showAlert('Firebase initialization failed', 'error');
+        return false;
+      }
+    }
+
+    // Utility Functions
+    function showAlert(message, type = 'success') {
+      const alert = document.createElement('div');
+      alert.className = `alert alert-${type}`;
+      alert.textContent = message;
+      document.getElementById('alertContainer').appendChild(alert);
+      
+      setTimeout(() => {
+        alert.remove();
+      }, 5000);
+    }
+
+    function checkDatabase() {
+      if (!db) {
+        showAlert('Database connection issue', 'error');
+        return false;
+      }
+      return true;
+    }
+
+    // Navigation Functions
+    function goToDashboard() {
+      if (window.location.protocol === 'file:') {
+        window.location.href = 'dashboard.html';
+      } else {
+        window.location.href = '/dashboard';
+      }
+    }
+
+    // Admin Credentials Management
+    async function saveAdminCredentials(newCredentials) {
+      if (!checkDatabase()) return false;
+      
+      try {
+        await db.collection('settings').doc('adminCredentials').set({
+          username: newCredentials.username,
+          password: newCredentials.password,
+          lastUpdated: new Date(),
+          updatedBy: sessionStorage.getItem('adminUser') || 'admin'
+        }, { merge: true });
+        
+        return true;
+      } catch (error) {
+        console.error('❌ Error saving admin credentials:', error);
+        return false;
+      }
+    }
+
+    async function loadAdminCredentials() {
+      if (!checkDatabase()) return null;
+      
+      try {
+        const doc = await db.collection('settings').doc('adminCredentials').get();
+        if (doc.exists) {
+          return doc.data();
+        }
+        return null;
+      } catch (error) {
+        console.error('❌ Error loading admin credentials:', error);
+        return null;
+      }
+    }
+
+    async function displayCurrentSettings() {
+      const credentials = await loadAdminCredentials();
+      const currentSettingsDiv = document.getElementById('currentSettings');
+      
+      if (credentials) {
+        currentSettingsDiv.innerHTML = `
+          <p><strong>Username:</strong> ${credentials.username}</p>
+          <p><strong>Last Updated:</strong> ${new Date(credentials.lastUpdated?.toDate()).toLocaleString()}</p>
+          <p><strong>Updated By:</strong> ${credentials.updatedBy || 'admin'}</p>
+        `;
+      } else {
+        currentSettingsDiv.innerHTML = `
+          <p><strong>Username:</strong> admin (default)</p>
+          <p><strong>Status:</strong> Using default credentials</p>
+        `;
+      }
+    }
+
+    // Form Handling
+    document.getElementById('adminSettingsForm').addEventListener('submit', async function(e) {
+      e.preventDefault();
+      
+      const newUsername = document.getElementById('newUsername').value;
+      const newPassword = document.getElementById('newPassword').value;
+      const confirmPassword = document.getElementById('confirmPassword').value;
+      
+      if (newPassword !== confirmPassword) {
+        showAlert('Passwords do not match!', 'error');
+        return;
+      }
+      
+      if (newPassword.length < 6) {
+        showAlert('Password must be at least 6 characters!', 'error');
+        return;
+      }
+      
+      if (newUsername.length < 3) {
+        showAlert('Username must be at least 3 characters!', 'error');
+        return;
+      }
+      
+      const saveBtn = document.getElementById('saveSettingsBtn');
+      saveBtn.innerHTML = '<div class="loading"></div>';
+      saveBtn.disabled = true;
+      
+      const success = await saveAdminCredentials({
+        username: newUsername,
+        password: newPassword
+      });
+      
+      if (success) {
+        showAlert('Admin credentials updated successfully!', 'success');
+        document.getElementById('adminSettingsForm').reset();
+        displayCurrentSettings();
+      } else {
+        showAlert('Failed to update credentials!', 'error');
+      }
+      
+      saveBtn.innerHTML = 'Save Changes';
+      saveBtn.disabled = false;
+    });
+
+    // Initialize
+    document.addEventListener('DOMContentLoaded', function() {
+      // Check authentication
+      const isLoggedIn = sessionStorage.getItem('adminLoggedIn');
+      if (!isLoggedIn) {
+        alert('Please login first!');
+        if (window.location.protocol === 'file:') {
+          window.location.href = 'login.html';
+        } else {
+          window.location.href = '/login';
+        }
+        return;
+      }
+      
+      // ম্যানুয়ালি কম্পোনেন্ট লোড করুন (যদি অটো লোড না হয়)
+      if (!window.ComponentLoader) {
+        setTimeout(() => {
+          if (window.ComponentLoader) {
+            ComponentLoader.loadAllComponents('সেটিংস');
+          }
+        }, 100);
+      } else {
+        ComponentLoader.loadAllComponents('সেটিংস');
+      }
+      
+      // Initialize Firebase and load settings
+      if (initializeFirebase()) {
+        displayCurrentSettings();
+      }
+    });
+  </script>
+</body>
+</html>
