@@ -9,44 +9,40 @@ const firebaseConfig = {
   measurementId: "G-ESJFXWGT6J"
 };
 
-let firebaseApp;
-let db;
-let analytics;
-let firebaseReady = false;
-let firebaseInitAttempted = false;
+// গ্লোবাল ভেরিয়েবলগুলো সরাসরি window অবজেক্টে সেট করুন
+window.firebaseReady = false;
+window.firebaseInitAttempted = false;
 
-// Firebase ইনিশিয়ালাইজ করার গ্লোবাল ফাংশন
 function initializeFirebase() {
-  if (firebaseInitAttempted) return firebaseReady;
-  firebaseInitAttempted = true;
+  if (window.firebaseInitAttempted) return window.firebaseReady;
+  window.firebaseInitAttempted = true;
   
   try {
     if (typeof firebase === 'undefined') {
       console.warn('Firebase SDK not loaded yet');
+      window.firebaseInitAttempted = false; // আবার চেষ্টা করার সুযোগ দিন
       return false;
     }
     
     if (!firebase.apps || firebase.apps.length === 0) {
-      firebaseApp = firebase.initializeApp(firebaseConfig);
-      console.log("✅ Firebase initialized successfully");
+      window.firebaseApp = firebase.initializeApp(firebaseConfig);
     } else {
-      firebaseApp = firebase.apps[0];
-      console.log("✅ Firebase already initialized");
+      window.firebaseApp = firebase.apps[0];
     }
     
-    // Firestore ও Analytics সচল করা
-    db = firebase.firestore();
+    // Firestore ও Analytics কে সরাসরি window-তে সেট করুন
+    window.db = firebase.firestore();
     
     if (typeof firebase.analytics === 'function') {
-      analytics = firebase.analytics();
-      console.log("📊 Firebase Analytics initialized");
+      window.analytics = firebase.analytics();
     }
 
-    firebaseReady = true;
+    window.firebaseReady = true;
+    console.log("✅ Firebase initialized successfully");
     return true;
   } catch (error) {
     console.error("❌ Firebase initialization error:", error);
-    firebaseReady = false;
+    window.firebaseReady = false;
     return false;
   }
 }

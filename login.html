@@ -450,14 +450,18 @@
 // FIREBASE কনফিগ (শুধু Firestore)
 // ============================================================
 function initializeFirebase() {
-  if (typeof firebase !== 'undefined' && (!firebase.apps || firebase.apps.length === 0)) {
-    firebase.initializeApp(firebaseConfig);
+  try {
+    if (typeof firebase !== 'undefined') {
+      if (!firebase.apps.length) {
+        firebase.initializeApp(firebaseConfig);
+      }
+      window.db = firebase.firestore(); // সরাসরি window-তে সেট করুন
+      return true;
+    }
+  } catch (e) {
+    console.error("Firebase Init Error:", e);
   }
-  // যদি db গ্লোবাল থাকে, তবে শুধু অ্যাসাইন করুন
-  if (typeof window.db === 'undefined') {
-    window.db = firebase.firestore();
-  }
-  return true;
+  return false;
 }
 
 // ============================================================
@@ -592,6 +596,12 @@ function switchBox(boxId) {
 // ============================================================
 document.getElementById('loginForm').addEventListener('submit', function(e) {
   e.preventDefault();
+  
+  // চেক করুন db আছে কি না
+  if (typeof db === 'undefined') {
+    showToast('সিস্টেম লোড হচ্ছে, কিছুক্ষণ অপেক্ষা করুন...', 'warning');
+    return;
+  }
   const phoneInput = cleanAndFormatPhone(document.getElementById('username').value);
   const passwordInput = document.getElementById('password').value;
   const loginButton = document.getElementById('mainLoginBtn');
@@ -899,50 +909,30 @@ document.addEventListener('keydown', function(e) {
   }
 });
 
-// ============================================================
-// 🔍 সেশন চেক
-// ============================================================
-// ============================================================
-// 🔍 সেশন চেক ও Firebase/Analytics ইনিশিয়ালাইজেশন
-// ============================================================
+
+// আপনার বর্তমান কোডটিকে এই অংশ দিয়ে প্রতিস্থাপন করুন
 document.addEventListener('DOMContentLoaded', function() {
   if (document.getElementById('username')) document.getElementById('username').focus();
 
-  // ১. সেশন ভেরিফিকেশন (আপনার অরিজিনাল লজিক)
-  if (sessionStorage.getItem('adminLoggedIn')) {
-    const loginTime = sessionStorage.getItem('loginTime');
-    const currentTime = new Date().getTime();
+  // Firebase নিশ্চিত করার জন্য একটি Promise ব্যবহার করা সবচেয়ে ভালো
+  const waitForFirebase = setInterval(() => {
+    // initializeFirebase কল করুন
+    initializeFirebase(); 
     
-    if (loginTime && (currentTime - parseInt(loginTime)) < (2 * 60 * 60 * 1000)) {
-      const savedRole = sessionStorage.getItem('userRole') || 'user';
-      const nextDashboard = (savedRole === 'admin' || savedRole === 'staff') ? 'dashboard.html' : 'userdashboard.html';
-      window.location.href = nextDashboard;
-      return;
-    } else {
-      sessionStorage.clear();
-    }
-  }
-
-  // ২. 🔥 ফিক্সড: গ্লোবাল config.js থেকে ফায়ারবেস ও অ্যানালিটিক্স সচল করার লুপ
-  let checkDbInterval = setInterval(() => {
-    if (typeof initializeFirebase === 'function') {
-      const isInitialized = initializeFirebase(); // config.js থেকে ফায়ারবেস রান হবে
+    // window.db যদি সেট হয়ে যায়, তবেই লুপ থামান
+    if (typeof window.db !== 'undefined' && window.db) {
+      clearInterval(waitForFirebase);
       
-      if (isInitialized && typeof db !== 'undefined' && db) {
-        clearInterval(checkDbInterval); // লুপ বন্ধ
-        console.log("🚀 Firebase DB & Analytics Linked to Login Panel successfully!");
-        
-        // পেজে সফলভাবে আসার পর Google Analytics-এ ভিজিট ইভেন্ট পাঠানো হচ্ছে
-        if (typeof analytics !== 'undefined' && analytics) {
-          firebase.analytics().logEvent('login_page_view');
-        }
-      }
+      const loginBtn = document.getElementById('mainLoginBtn');
+      const regBtn = document.getElementById('regSubmitBtn');
+      
+      if (loginBtn) { loginBtn.disabled = false; loginBtn.innerText = "লগইন করুন"; }
+      if (regBtn) { regBtn.disabled = false; regBtn.innerText = "অ্যাকাউন্ট তৈরি করুন"; }
+      
+      console.log("✅ System Ready");
     }
-  }, 100);
+  }, 300); // সময় কিছুটা বাড়িয়ে দিন যাতে নেটওয়ার্ক লোড হওয়ার সুযোগ পায়
 });
-
-console.log('✅ লগইন সিস্টেম রেডি (OTP লগইন বাদ, automas API, Analytics Enabled)');
 </script>
-
 </body>
 </html>
