@@ -453,12 +453,14 @@
 // ============================================================
 // FIREBASE কনফিগ (শুধু Firestore)
 // ============================================================
-let db;
 function initializeFirebase() {
-  if (typeof firebase !== 'undefined' && !firebase.apps.length) {
+  if (typeof firebase !== 'undefined' && (!firebase.apps || firebase.apps.length === 0)) {
     firebase.initializeApp(firebaseConfig);
   }
-  db = firebase.firestore();
+  // যদি db গ্লোবাল থাকে, তবে শুধু অ্যাসাইন করুন
+  if (typeof window.db === 'undefined') {
+    window.db = firebase.firestore();
+  }
   return true;
 }
 
