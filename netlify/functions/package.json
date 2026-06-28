@@ -1,1 +1,6 @@
-
+{
+  "name": "netlify-functions",
+  "dependencies": {
+    "firebase-admin": "^11.8.0"
+  }
+}
