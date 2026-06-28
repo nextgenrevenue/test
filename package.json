@@ -1,0 +1,6 @@
+{
+  "name": "New-folder",
+  "dependencies": {
+    "firebase-admin": "^11.8.0"
+  }
+}
