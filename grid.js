@@ -1,11 +1,10 @@
-// grid.js - FINAL WORKING VERSION (স্ক্রোল ফিক্স সহ)
-console.log("📦 grid.js লোড হচ্ছে...");
+// grid.js - DATE BASED VERSION WITH MULTI-SELECT FOR ADMIN (COMPLETE FIX)
+console.log("📅 তারিখ-ভিত্তিক Grid System লোড হচ্ছে...");
 
 class RealTimeGridSystem {
   constructor(config) {
     console.log("🔧 Grid System Constructor কল হয়েছে");
     
-    // ডিফল্ট কনফিগারেশন
     const defaultConfig = {
       firebase: null,
       db: null,
@@ -23,344 +22,179 @@ class RealTimeGridSystem {
       onPendingUpdate: null,
       mode: 'user',
       adminSessionId: null,
-      userPendingExpiry: 1 * 60 * 1000, // 1 minutes
-      adminPendingExpiry: 5 * 60 * 1000, // 1 minutes
+      userPendingExpiry: 1 * 60 * 1000,
+      adminPendingExpiry: 5 * 60 * 1000,
       enableRealTime: true,
-      customFilters: {}
+      multiSelect: false
     };
     
     this.config = { ...defaultConfig, ...config };
     
-    // ডাটা স্টোরেজ
     this.serialRanges = {};
-    this.appointments = [];
+    this.appointments = {};
     this.pendingSelections = {};
     this.userPendingId = null;
     this.currentSelection = null;
     this.realtimeListeners = [];
-    this.currentUserPendingSerial = null; // ✅ বর্তমান ইউজারের পেন্ডিং সিরিয়াল ট্র্যাক
+    this.currentUserPendingSerial = null;
     
-    console.log(`✅ Grid System তৈরি হয়েছে (${this.config.mode} মোড)`);
+    // মাল্টি সিলেক্টের জন্য প্রপার্টি
+    this.multiSelect = this.config.multiSelect || false;
+    this.selectedSerials = [];
+    this.currentPatientIndex = 0;
+    
+    // কনফিগারেশন পরিবর্তন ট্র্যাকিং
+    this._lastDay = null;
+    this._lastTime = null;
+    this._lastType = null;
+    
+    // ✅ গ্রিড রি-রেন্ডার ঠেকানোর জন্য ফ্ল্যাগ
+    this._skipNextGridRender = false;
+    
+    this.isProcessing = false;
+    this.scrollPosition = 0;
+    
+    console.log(`✅ Grid System তৈরি হয়েছে (${this.config.mode} মোড, multiSelect: ${this.multiSelect})`);
   }
 
-  // ==================== CSS ইনজেকশন ====================
-  injectStyles() {
-    console.log("🎨 CSS স্টাইল ইনজেক্ট হচ্ছে...");
+  getNextDateByDay(targetDay) {
+    const daysMap = {
+      "Sunday": 0, "Monday": 1, "Tuesday": 2, "Wednesday": 3,
+      "Thursday": 4, "Friday": 5, "Saturday": 6
+    };
     
-    if (document.getElementById('grid-system-styles')) {
-      console.log("ℹ️ CSS ইতিমধ্যে ইনজেক্ট করা হয়েছে");
-      return;
-    }
+    const targetDayIndex = daysMap[targetDay];
+    const today = new Date();
+    const todayIndex = today.getDay();
+    let daysToAdd = targetDayIndex - todayIndex;
+    if (daysToAdd < 0) daysToAdd += 7;
+    
+    const nextDate = new Date(today);
+    nextDate.setDate(today.getDate() + daysToAdd);
+    
+    return {
+      date: nextDate,
+      dateString: this.formatDate(nextDate),
+      displayDate: this.formatDisplayDate(nextDate),
+      banglaDate: this.formatBanglaDate(nextDate),
+      isToday: daysToAdd === 0
+    };
+  }
+
+  formatDate(date) {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
+
+  formatDisplayDate(date) {
+    return date.toLocaleDateString('bn-BD', { 
+      weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' 
+    });
+  }
+
+  formatBanglaDate(date) {
+    const banglaMonths = ['জানুয়ারী', 'ফেব্রুয়ারী', 'মার্চ', 'এপ্রিল', 'মে', 'জুন',
+      'জুলাই', 'আগস্ট', 'সেপ্টেম্বর', 'অক্টোবর', 'নভেম্বর', 'ডিসেম্বর'];
+    const banglaDays = ['রবিবার', 'সোমবার', 'মঙ্গলবার', 'বুধবার', 'বৃহস্পতিবার', 'শুক্রবার', 'শনিবার'];
+    return `${banglaDays[date.getDay()]}, ${date.getDate()} ${banglaMonths[date.getMonth()]} ${date.getFullYear()}`;
+  }
+
+  injectStyles() {
+    if (document.getElementById('grid-system-styles')) return;
     
     const style = document.createElement('style');
     style.id = 'grid-system-styles';
-    
-    const css = `
-      /* Grid System Styles */
-
-      .available-dot { background-color: var(--success); }
-      .booked-dot { background-color: var(--danger); }
-      .selected-dot { background-color: var(--warning); }
-      .pending-dot { background-color: var(--info); }
-
-      .serial-grid {
-        display: grid;
-        grid-template-columns: repeat(10, 1fr);
-        gap: 8px;
-        margin: 10px 0;
-        padding: 10px;
-        border: 1px solid #e5e7eb;
-        border-radius: 8px;
-        max-height: 300px;
-        overflow-y: auto;
-        background-color: white;
-        overscroll-behavior: contain;
-        -webkit-overflow-scrolling: touch;
-      }
-      
-      .serial-item {
-        padding: 10px;
-        border: 2px solid transparent;
-        border-radius: 6px;
-        text-align: center;
-        font-weight: 500;
-        font-size: 14px;
-        transition: all 0.2s ease;
-        user-select: none;
-        cursor: pointer;
-        min-height: 40px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        outline: none;
-        -webkit-tap-highlight-color: transparent;
-        touch-action: manipulation;
-      }
-      
-      .serial-item:focus,
-      .serial-item:active {
-        outline: none !important;
-        box-shadow: none !important;
-      }
-      
-      /* সবুজ - খালি */
-      .serial-item.available {
-        background-color: #dcfce7;
-      color: var(--success);
-      border: 2px solid var(--success);
-      }
-      
-      .serial-item.available:hover {
-        background-color: #bbf7d0;
-      transform: translateY(-2px);
-      box-shadow: 0 4px 8px rgba(34, 197, 94, 0.2);
-      }
-      
-      /* লাল - বুকড */
-      .serial-item.booked {
-        background-color: #fecaca;
-      color: var(--danger);
-      border: 2px solid var(--danger);
-      cursor: not-allowed;
-      opacity: 0.8;
-      }
-      
-      /* নীল - সিলেক্টেড (অন্য ইউজার) */
-      .serial-item.pending {
-        background-color: #dbeafe;
-      color: var(--info);
-      border: 2px solid var(--info);
-      cursor: not-allowed;
-      opacity: 0.7;
-      }
-      
-      /* হলুদ - আপনার নির্বাচিত */
-      .serial-item.selected {
-        background-color: #fef3c7;
-      color: var(--warning);
-      border: 2px solid var(--warning);
-      transform: scale(1.05);
-      box-shadow: 0 4px 12px rgba(245, 158, 11, 0.3);
-      font-weight: 700;
-      }
-      
-      /* এক্সপায়ার্ড */
-      .serial-item.expired {
-        background-color: #f3f4f6;
-        color: #4b5563;
-        border-color: #9ca3af;
-        cursor: pointer;
-      }
-      
-      .serial-item.expired:hover {
-        background-color: #e5e7eb;
-      }
-      
-      /* Responsive Design */
-      @media (max-width: 1024px) {
-        .serial-grid {
-          grid-template-columns: repeat(7, 1fr);
-        }
-      }
-      
-      @media (max-width: 768px) {
-        .serial-grid {
-          grid-template-columns: repeat(5, 1fr);
-          gap: 6px;
-        }
-        
-        .serial-item {
-          padding: 8px;
-          font-size: 13px;
-          min-height: 36px;
-        }
-      }
-      
-      @media (max-width: 480px) {
-        .serial-grid {
-          grid-template-columns: repeat(7, 1fr);
-        }
-        
-        .serial-item {
-          font-size: 12px;
-          min-height: 32px;
-        }
-      }
-      
-      .grid-no-selection {
-        grid-column: 1 / -1;
-        text-align: center;
-        padding: 20px;
-        color: #6b7280;
-        font-style: italic;
-      }
-      
-      .grid-loading {
-        grid-column: 1 / -1;
-        text-align: center;
-        padding: 30px;
-        color: #3b82f6;
-      }
+    style.textContent = `
+      .serial-grid { display: grid; grid-template-columns: repeat(10, 1fr); gap: 8px; margin: 10px 0; padding: 10px; border: 1px solid #e5e7eb; border-radius: 8px; max-height: 300px; overflow-y: auto; background-color: white; }
+      .date-header { grid-column: 1 / -1; text-align: center; font-weight: 700; color: #1d4ed8; padding: 10px; background: linear-gradient(135deg, #dbeafe, #eff6ff); border-radius: 8px; margin-bottom: 10px; border: 2px solid #3b82f6; font-size: 15px; }
+      .serial-item { padding: 10px; border: 2px solid transparent; border-radius: 6px; text-align: center; font-weight: 500; font-size: 14px; transition: all 0.08s linear; user-select: none; cursor: pointer; min-height: 40px; display: flex; align-items: center; justify-content: center; will-change: background-color, border-color; backface-visibility: hidden; }
+      .serial-item.available { background-color: #dcfce7; color: #16a34a; border: 2px solid #16a34a; }
+      .serial-item.available:hover { background-color: #bbf7d0; transform: translateY(-2px); box-shadow: 0 4px 8px rgba(34, 197, 94, 0.2); }
+      .serial-item.booked { background-color: #fecaca; color: #dc2626; border: 2px solid #dc2626; cursor: not-allowed; opacity: 0.8; pointer-events: none; }
+      .serial-item.pending { background-color: #dbeafe; color: #3b82f6; border: 2px solid #3b82f6; cursor: not-allowed; opacity: 0.7; pointer-events: none; }
+      .serial-item.selected { background-color: #fef3c7; color: #f59e0b; border: 2px solid #f59e0b; font-weight: 700; }
+      @media (max-width: 768px) { .serial-grid { grid-template-columns: repeat(7, 1fr); gap: 6px; } .serial-item { padding: 8px; font-size: 13px; } }
+      @media (max-width: 480px) { .serial-grid { grid-template-columns: repeat(7, 1fr); } .serial-item { font-size: 12px; } }
+      .grid-no-selection { grid-column: 1 / -1; text-align: center; padding: 20px; color: #6b7280; font-style: italic; }
     `;
-    
-    style.textContent = css;
     document.head.appendChild(style);
-    console.log("✅ CSS সফলভাবে ইনজেক্ট হয়েছে");
   }
 
-  // ==================== ইনিশিয়ালাইজেশন ====================
   async init() {
     console.log("🚀 Grid System ইনিশিয়ালাইজেশন শুরু...");
-    
     try {
-      // CSS ইনজেক্ট করুন
       this.injectStyles();
-      
-      // ডাটাবেজ চেক
-      if (!this.config.db) {
-        throw new Error('Firebase Firestore database is not available');
-      }
-      
-      // ডাটা লোড করুন
+      if (!this.config.db) throw new Error('Firebase Firestore not available');
       await this.loadSerialRanges();
-      await this.loadAppointments();
-      
-      // রিয়েল-টাইম লিসেনার সেটআপ
-      if (this.config.enableRealTime) {
-        this.setupRealtimeListeners();
-      }
-      
-      // ইভেন্ট লিসেনার সেটআপ
-      this.setupEventListeners();
-      
-      // ✅ Event Delegation সেটআপ
+      if (this.config.enableRealTime) this.setupRealtimeListeners();
       this.setupEventDelegation();
-      
       console.log("✅ Grid System সফলভাবে ইনিশিয়ালাইজ হয়েছে");
       return true;
-      
     } catch (error) {
       console.error("❌ Grid System ইনিশিয়ালাইজেশন ব্যর্থ:", error);
       return false;
     }
   }
 
-  // ==================== ডাটা লোডিং ====================
   async loadSerialRanges() {
-    if (!this.config.db) {
-      console.error("❌ ডাটাবেজ নেই");
-      return;
-    }
-    
+    if (!this.config.db) return;
     try {
-      console.log("📊 সিরিয়াল রেঞ্জ লোড হচ্ছে...");
-      
       const doc = await this.config.db
         .collection(this.config.settingsCollection)
         .doc(this.config.serialRangesDocId)
         .get();
-      
       if (doc.exists) {
         this.serialRanges = doc.data();
-        console.log("✅ সিরিয়াল রেঞ্জ লোড হয়েছে:", this.serialRanges);
       } else {
-        console.log("ℹ️ কোনো সিরিয়াল রেঞ্জ পাওয়া যায়নি");
-        this.serialRanges = {
-          Thursday: { new: {}, old: {} },
-          Friday: { new: {}, old: {} }
-        };
+        this.serialRanges = { Thursday: { new: {}, old: {} }, Friday: { new: {}, old: {} } };
       }
-      
     } catch (error) {
       console.error("❌ সিরিয়াল রেঞ্জ লোড করতে সমস্যা:", error);
     }
   }
 
-  async loadAppointments() {
-    if (!this.config.db) return;
-    
-    try {
-      console.log("📅 অ্যাপয়েন্টমেন্ট লোড হচ্ছে...");
-      
-      // শুধু ৪ দিনের ডাটা লোড করবে
-      const fourDaysAgo = new Date();
-      fourDaysAgo.setDate(fourDaysAgo.getDate() - 4);
-      
-      const snapshot = await this.config.db
-        .collection(this.config.appointmentsCollection)
-        .where('timestamp', '>=', fourDaysAgo)
-        .get();
-      
-      this.appointments = [];
-      snapshot.forEach(doc => {
-        this.appointments.push({
-          id: doc.id,
-          ...doc.data()
-        });
-      });
-      
-      console.log(`✅ ${this.appointments.length} টি অ্যাপয়েন্টমেন্ট লোড হয়েছে (৪ দিনের মধ্যে)`);
-      
-    } catch (error) {
-      console.error("❌ অ্যাপয়েন্টমেন্ট লোড করতে সমস্যা:", error);
-    }
-  }
-
-  // ==================== রিয়েল-টাইম লিসেনার ====================
   setupRealtimeListeners() {
     if (!this.config.db) return;
     
-    console.log("🔗 রিয়েল-টাইম লিসেনার সেটআপ হচ্ছে...");
+    const threeDaysAgo = new Date();
+    threeDaysAgo.setDate(threeDaysAgo.getDate() - 3);
+    const dateLimitString = this.formatDate(threeDaysAgo);
     
-    // শুধু ৪ দিনের ডাটা দেখাবে
-    const fourDaysAgo = new Date();
-    fourDaysAgo.setDate(fourDaysAgo.getDate() - 4);
-    
-    // অ্যাপয়েন্টমেন্ট লিসেনার - শুধু ৪ দিনের ডাটা
+    if (this.realtimeListeners.length) {
+      this.realtimeListeners.forEach(unsub => { if(typeof unsub === 'function') unsub(); });
+      this.realtimeListeners = [];
+    }
+
     const appointmentsListener = this.config.db
       .collection(this.config.appointmentsCollection)
-      .where('timestamp', '>=', fourDaysAgo)
+      .where('appointmentDate', '>=', dateLimitString)
       .onSnapshot(snapshot => {
-        console.log("🔄 অ্যাপয়েন্টমেন্ট আপডেট পাওয়া গেছে");
-        
-        this.appointments = [];
+        this.appointments = {};
         snapshot.forEach(doc => {
-          this.appointments.push({
-            id: doc.id,
-            ...doc.data()
-          });
+          const data = doc.data();
+          const dateString = data.appointmentDate;
+          const day = data.day;
+          if (dateString && day) {
+            const key = `${dateString}_${day}`;
+            if (!this.appointments[key]) this.appointments[key] = [];
+            this.appointments[key].push({ id: doc.id, ...data });
+          }
         });
-        
-        this.updateGrid();
-        
-        if (this.config.onGridUpdate) {
-          this.config.onGridUpdate('appointments', {
-            count: this.appointments.length,
-            data: this.appointments
-          });
-        }
-      }, error => {
-        console.error("❌ অ্যাপয়েন্টমেন্ট লিসেনার ত্রুটি:", error);
-      });
+        this.safeUpdateGrid();
+      }, error => console.error("❌ অ্যাপয়েন্টমেন্ট লিসেনার ত্রুটি:", error));
     
     this.realtimeListeners.push(appointmentsListener);
     
-    // পেন্ডিং সিলেকশন লিসেনার - শুধু একটিভ পেন্ডিং
     const pendingListener = this.config.db
       .collection(this.config.pendingSelectionsCollection)
       .where('expiresAt', '>', new Date())
       .onSnapshot(snapshot => {
-        console.log("🔄 পেন্ডিং সিলেকশন আপডেট পাওয়া গেছে");
-        
         this.processPendingSelections(snapshot);
-        this.updateGrid();
-        
-        if (this.config.onPendingUpdate) {
-          this.config.onPendingUpdate(this.pendingSelections);
-        }
-      }, error => {
-        console.error("❌ পেন্ডিং সিলেকশন লিসেনার ত্রুটি:", error);
-      });
+        this.safeUpdateGrid();
+        if (this.config.onPendingUpdate) this.config.onPendingUpdate(this.pendingSelections);
+      }, error => console.error("❌ পেন্ডিং সিলেকশন লিসেনার ত্রুটি:", error));
     
     this.realtimeListeners.push(pendingListener);
   }
@@ -368,241 +202,302 @@ class RealTimeGridSystem {
   processPendingSelections(snapshot) {
     this.pendingSelections = {};
     const now = new Date();
-    
     snapshot.forEach(doc => {
       const data = doc.data();
-      
       if (data.expiresAt && data.expiresAt.toDate() > now) {
-        const key = `${data.day}_${data.time}_${data.type}`;
-        
-        if (!this.pendingSelections[key]) {
-          this.pendingSelections[key] = {
-            user: [],
-            admin: []
-          };
-        }
-        
+        const key = `${data.appointmentDate}_${data.day}_${data.time}_${data.type}`;
+        if (!this.pendingSelections[key]) this.pendingSelections[key] = { user: [], admin: [] };
         if (data.bookedBy === 'user') {
-          this.pendingSelections[key].user.push({
-            serial: data.serial,
-            id: doc.id,
-            expiresAt: data.expiresAt
-          });
-          
-          // ✅ যদি এটি বর্তমান ইউজারের পেন্ডিং হয়
-          if (doc.id === this.userPendingId) {
-            this.currentUserPendingSerial = data.serial;
-          }
+          this.pendingSelections[key].user.push({ serial: data.serial, id: doc.id, expiresAt: data.expiresAt });
+          if (doc.id === this.userPendingId) this.currentUserPendingSerial = data.serial;
         } else if (data.bookedBy === 'admin') {
-          this.pendingSelections[key].admin.push({
-            serial: data.serial,
-            id: doc.id,
-            adminId: data.adminId,
-            expiresAt: data.expiresAt
-          });
+          this.pendingSelections[key].admin.push({ serial: data.serial, id: doc.id, adminId: data.adminId, expiresAt: data.expiresAt });
         }
       }
     });
-    
-    console.log("📋 পেন্ডিং সিলেকশন প্রসেস করা হয়েছে");
   }
 
-  // ==================== ইভেন্ট হ্যান্ডলিং ====================
   setupEventDelegation() {
     const gridContainer = document.getElementById(this.config.gridContainerId);
     if (!gridContainer) return;
-    
-    // পুরানো ইভেন্ট রিমুভ
-    gridContainer.removeEventListener('click', this.handleGridClick.bind(this));
-    
-    // নতুন ইভেন্ট যোগ
-    gridContainer.addEventListener('click', (e) => this.handleGridClick(e));
-    
-    console.log("🎯 ইভেন্ট ডেলিগেশন সেটআপ সম্পন্ন");
+    gridContainer.removeEventListener('click', this.handleGridClick);
+    this.handleGridClick = this.handleGridClick.bind(this);
+    gridContainer.addEventListener('click', this.handleGridClick);
   }
 
   handleGridClick(event) {
+    if (this.isProcessing) return;
     const serialItem = event.target.closest('.serial-item');
     if (!serialItem) return;
-    
-    // বুকড বা পেন্ডিং সিরিয়ালে ক্লিক করবেন না
-    if (serialItem.classList.contains('booked') || 
-        serialItem.classList.contains('pending')) {
-      return;
-    }
+    if (serialItem.classList.contains('booked') || serialItem.classList.contains('pending')) return;
     
     const serial = parseInt(serialItem.dataset.serial);
     if (isNaN(serial)) return;
     
-    console.log(`🎯 সিরিয়াল ${serial} ক্লিক করা হয়েছে`);
+    this.isProcessing = true;
     
-    // ✅ ফোকাস থেকে স্ক্রোল প্রতিরোধ
-    setTimeout(() => {
-      serialItem.blur();
-      // সব সক্রিয় এলিমেন্টকে blur করুন
-      const activeEl = document.activeElement;
-      if (activeEl && activeEl.classList && activeEl.classList.contains('serial-item')) {
-        activeEl.blur();
-      }
-    }, 0);
-    
-    // দ্রুত UI আপডেট
-    serialItem.classList.remove('available', 'expired', 'selected');
-    serialItem.classList.add('selected');
-    serialItem.style.cursor = 'wait';
-    
-    // সিরিয়াল সিলেক্ট করুন
-    this.selectSerial(serial).catch(error => {
-      console.error("❌ সিরিয়াল সিলেক্টে সমস্যা:", error);
-      this.updateGrid();
-    });
-    
-    // ✅ ফোকাস ইভেন্ট লিসেনার যোগ করুন
-    serialItem.addEventListener('focus', function(e) {
-      e.target.blur();
-    }, { once: true });
-  }
-
-  setupEventListeners() {
-    console.log("🎯 ইভেন্ট লিসেনার সেটআপ হচ্ছে...");
-    
-    const elementsToWatch = [
-      this.config.dayElementId,
-      this.config.timeElementId,
-      this.config.typeElementId
-    ];
-    
-    elementsToWatch.forEach(elementId => {
-      const element = document.getElementById(elementId);
-      if (element) {
-        element.addEventListener('change', () => {
-          console.log(`${elementId} চেঞ্জ হয়েছে, গ্রিড আপডেট হচ্ছে...`);
-          this.updateGrid();
-        });
-      }
+    this.selectSerial(serial).finally(() => {
+      this.isProcessing = false;
     });
   }
 
-  // ==================== ইউটিলিটি ফাংশন ====================
   getElementValue(elementId) {
-    if (typeof elementId === 'function') {
-      return elementId();
-    }
-    
     const element = document.getElementById(elementId);
     return element ? element.value : null;
   }
 
-  getSerialRange(day, type, time) {
-    if (this.serialRanges[day] && 
-        this.serialRanges[day][type] && 
-        this.serialRanges[day][type][time]) {
-      return this.serialRanges[day][type][time];
-    }
-    return null;
-  }
-
-  // ✅ FIXED: সিরিয়াল স্ট্যাটাস ফাংশন
-  getSerialStatus(serial, day, time, type, pendingData) {
-    const status = {
-      isBooked: false,
-      isExpiredBooking: false,
-      isOtherUserPending: false,
-      isCurrentUserPending: false,
-      isAdminPending: false,
-      isCurrentAdminPending: false,
-      tooltip: `সিরিয়াল: ${serial}`
-    };
+  async selectSerial(serial) {
+    console.log(`🎯 সিরিয়াল ${serial} সিলেক্ট করা হচ্ছে...`);
     
-    // চেক করা বুকড কিনা
-    const appointment = this.appointments.find(app => {
-      const patientType = app.patientType || app.type;
-      return app.day === day &&
-             app.time === time &&
-             patientType === type &&
-             app.serial === serial;
+    // ✅ গ্রিড রি-রেন্ডার ঠেকাও
+    this._skipNextGridRender = true;
+    
+    // UI এলিমেন্টস
+    const newSerialElement = document.querySelector(`.serial-item[data-serial="${serial}"]`);
+    if (!newSerialElement) {
+        this._skipNextGridRender = false;
+        return false;
+    }
+    
+    // কনফিগারেশন চেক
+    const day = this.getElementValue(this.config.dayElementId);
+    const time = this.getElementValue(this.config.timeElementId);
+    const type = this.getElementValue(this.config.typeElementId);
+    
+    if (!day || !time || !type) {
+        this._skipNextGridRender = false;
+        return false;
+    }
+    
+    const nextDateInfo = this.getNextDateByDay(day);
+    const dateString = nextDateInfo.dateString;
+    
+    // বুকিং এবং পেন্ডিং চেক
+    const key = `${dateString}_${day}`;
+    const dayAppointments = this.appointments[key] || [];
+    const appointment = dayAppointments.find(app => {
+        const patientType = app.patientType || app.type;
+        return app.time === time && patientType === type && app.serial === serial;
     });
     
     if (appointment) {
-      // চেক ৪ দিনের বেশি পুরানো কিনা
-      if (appointment.timestamp && appointment.timestamp.toDate) {
-        const appointmentDate = appointment.timestamp.toDate();
-        const fourDaysAgo = new Date();
-        fourDaysAgo.setDate(fourDaysAgo.getDate() - 4);
-        
-        if (appointmentDate < fourDaysAgo) {
-          status.isExpiredBooking = true;
-          status.tooltip = 'এই সিরিয়ালটি ৪ দিনের বেশি পুরানো, আবার বুক করা যাবে';
-        } else {
-          status.isBooked = true;
-          status.tooltip = 'ইতিমধ্যে বুক করা হয়েছে';
+        if (this.config.onSerialClick) {
+            this.config.onSerialClick({ serial, status: 'booked', date: dateString });
         }
-      } else {
-        status.isBooked = true;
-        status.tooltip = 'ইতিমধ্যে বুক করা হয়েছে';
-      }
+        this._skipNextGridRender = false;
+        return false;
     }
     
-    // পেন্ডিং সিলেকশন চেক
-    if (!status.isBooked && !status.isExpiredBooking) {
-      // ✅ প্রথমে চেক করুন যদি এটি বর্তমান ইউজারের পেন্ডিং হয়
-      if (this.currentUserPendingSerial === serial) {
-        status.isCurrentUserPending = true;
-        status.tooltip = 'আপনার নির্বাচিত (পেন্ডিং)';
-      } 
-      // ✅ অন্য ইউজারের পেন্ডিং চেক
-      else if (pendingData.user && pendingData.user.some(p => p.serial === serial)) {
-        status.isOtherUserPending = true;
-        status.tooltip = 'অন্য ইউজার সিলেক্ট করেছেন (পেন্ডিং)';
-      }
-      
-      // এডমিন পেন্ডিং চেক
-      if (pendingData.admin && pendingData.admin.some(p => p.serial === serial)) {
-        status.isAdminPending = true;
-        
-        if (this.config.mode === 'admin') {
-          const adminPending = pendingData.admin.find(p => p.serial === serial);
-          if (adminPending && adminPending.adminId === this.config.adminSessionId) {
-            status.isCurrentAdminPending = true;
-            status.tooltip = 'আপনার নির্বাচিত (পেন্ডিং)';
-          } else {
-            status.tooltip = 'অন্য এডমিন সিলেক্ট করেছেন';
-          }
+    const pendingKey = `${dateString}_${day}_${time}_${type}`;
+    const pendingData = this.pendingSelections[pendingKey] || { user: [], admin: [] };
+    const isPendingByOther = pendingData.user.some(p => p.serial === serial) || 
+                              pendingData.admin.some(p => p.serial === serial && p.adminId !== this.config.adminSessionId);
+    
+    if (isPendingByOther) {
+        if (this.config.onSerialClick) {
+            this.config.onSerialClick({ serial, status: 'pending', date: dateString });
         }
-      }
+        this._skipNextGridRender = false;
+        return false;
     }
     
-    // খালি সিরিয়াল
-    if (!status.isBooked && !status.isExpiredBooking && 
-        !status.isOtherUserPending && !status.isCurrentUserPending && 
-        !status.isAdminPending && !status.isCurrentAdminPending) {
-      status.tooltip = 'খালি সিরিয়াল - ক্লিক করে নির্বাচন করুন';
+    // ========== মাল্টি সিলেক্ট মোড ==========
+    if (this.multiSelect === true) {
+        
+        // 🔥 গুরুত্বপূর্ণ: এই সিরিয়ালটি ইতিমধ্যে সিলেক্টেড কিনা চেক
+        const alreadySelectedForCurrentPatient = this.selectedSerials.some(
+            s => s.serial === serial && s.patientIndex === this.currentPatientIndex
+        );
+        
+        // ✅ যদি ইতিমধ্যে এই রোগীর জন্য সিলেক্টেড থাকে, তাহলে কিছুই করো না
+        if (alreadySelectedForCurrentPatient) {
+            console.log(`⏭️ সিরিয়াল ${serial} ইতিমধ্যে সিলেক্টেড, কিছু করা হচ্ছে না`);
+            this._skipNextGridRender = false;
+            return true;  // ফিরে যাও, কিছু পরিবর্তন করো না
+        }
+        
+        // চেক করা হচ্ছে এই সিরিয়ালটি অন্য রোগীর জন্য সিলেক্টেড কিনা
+        const existingForOtherPatient = this.selectedSerials.find(s => s.serial === serial && s.patientIndex !== this.currentPatientIndex);
+        
+        if (existingForOtherPatient) {
+            // অন্য রোগীর সিরিয়াল - সেটা UI থেকে রিমুভ করে নিচ্ছি
+            console.log(`🔄 সিরিয়াল ${serial} অন্য রোগীর (${existingForOtherPatient.patientIndex}) থেকে রি-অ্যাসাইন করা হচ্ছে`);
+            const otherElement = document.querySelector(`.serial-item[data-serial="${serial}"]`);
+            if (otherElement) {
+                otherElement.classList.remove('selected');
+                otherElement.classList.add('available');
+            }
+            if (existingForOtherPatient.pendingId) {
+                await this.removePendingSelection(existingForOtherPatient.pendingId);
+            }
+            const otherIndex = this.selectedSerials.findIndex(s => s.serial === serial);
+            if (otherIndex !== -1) {
+                this.selectedSerials.splice(otherIndex, 1);
+            }
+        }
+        
+        const patientCount = document.querySelectorAll('.patient-card').length;
+        const currentPatientSelections = this.getSerialsForPatient(this.currentPatientIndex);
+        let oldSerialElement = null;
+        let oldSerial = null;
+        
+        // === ১. পুরনো সিলেকশন থাকলে সেটা UI থেকে আনসিলেক্ট ===
+        if (currentPatientSelections.length >= 1) {
+            oldSerial = currentPatientSelections[0];
+            oldSerialElement = document.querySelector(`.serial-item[data-serial="${oldSerial}"]`);
+            
+            // UI থেকে পুরনো সিলেকশন রিমুভ
+            if (oldSerialElement && oldSerialElement !== newSerialElement) {
+                oldSerialElement.classList.remove('selected');
+                oldSerialElement.classList.add('available');
+            }
+            
+            // ডাটা থেকে পুরনো সিলেকশন রিমুভ
+            const oldSelection = this.selectedSerials.find(s => s.serial === oldSerial && s.patientIndex === this.currentPatientIndex);
+            if (oldSelection && oldSelection.pendingId) {
+                await this.removePendingSelection(oldSelection.pendingId);
+            }
+            const oldIndex = this.selectedSerials.findIndex(s => s.serial === oldSerial && s.patientIndex === this.currentPatientIndex);
+            if (oldIndex !== -1) {
+                this.selectedSerials.splice(oldIndex, 1);
+            }
+        }
+        
+        // === ২. মোট সিলেকশন লিমিট চেক (অন্য রোগীর জন্য) ===
+        const totalSelected = this.getAllSelectedSerials().length;
+        if (totalSelected >= patientCount && !currentPatientSelections.length) {
+            if (this.selectedSerials.length > 0) {
+                const oldest = this.selectedSerials[0];
+                const oldestElement = document.querySelector(`.serial-item[data-serial="${oldest.serial}"]`);
+                
+                if (oldestElement) {
+                    oldestElement.classList.remove('selected');
+                    oldestElement.classList.add('available');
+                }
+                
+                if (oldest.pendingId) {
+                    await this.removePendingSelection(oldest.pendingId);
+                }
+                this.selectedSerials.shift();
+            }
+        }
+        
+        // === ৩. নতুন সিরিয়াল সিলেক্ট ===
+        const pendingId = await this.addPendingSelection(serial, day, time, type, dateString);
+        if (pendingId) {
+            this.selectedSerials.push({ 
+                serial, pendingId, date: dateString, 
+                patientIndex: this.currentPatientIndex 
+            });
+            
+            // 🔥 UI আপডেট
+            newSerialElement.classList.remove('available', 'pending');
+            newSerialElement.classList.add('selected');
+            
+            const selectedInput = document.getElementById(this.config.selectedSerialInputId);
+            if (selectedInput) {
+                selectedInput.value = JSON.stringify(this.selectedSerials.map(s => s.serial));
+            }
+            
+            if (this.config.onSerialClick) {
+                this.config.onSerialClick({
+                    serial, status: 'selected',
+                    allSelected: this.selectedSerials.map(s => s.serial),
+                    patientIndex: this.currentPatientIndex
+                });
+            }
+            
+            console.log(`✅ সিরিয়াল ${serial} সিলেক্ট হয়েছে`);
+        }
+        
+        // সিরিয়াল ডিসপ্লে আপডেট
+        if (typeof updateAllSerialDisplays === 'function') {
+            updateAllSerialDisplays();
+        }
+        
+        this._skipNextGridRender = false;
+        return true;
     }
     
-    return status;
-  }
+    // ========== সিঙ্গেল সিলেক্ট মোড ==========
+    if (this.userPendingId) {
+        const oldElement = document.querySelector(`.serial-item[data-serial="${this.currentSelection}"]`);
+        if (oldElement) {
+            oldElement.classList.remove('selected');
+            oldElement.classList.add('available');
+        }
+        await this.removePendingSelection(this.userPendingId);
+    }
+    
+    const pendingId = await this.addPendingSelection(serial, day, time, type, dateString);
+    if (pendingId) {
+        this.userPendingId = pendingId;
+        this.currentSelection = serial;
+        this.currentUserPendingSerial = serial;
+        
+        newSerialElement.classList.remove('available', 'pending');
+        newSerialElement.classList.add('selected');
+        
+        const selectedInput = document.getElementById(this.config.selectedSerialInputId);
+        if (selectedInput) {
+            selectedInput.value = serial;
+        }
+        
+        if (this.config.onSerialClick) {
+            this.config.onSerialClick({ serial, status: 'pending', pendingId, date: dateString });
+        }
+    }
+    
+    this._skipNextGridRender = false;
+    return true;
+}
 
-  // ==================== গ্রিড রেন্ডারিং ====================
-  updateGrid() {
-    console.log("🎯 গ্রিড আপডেট হচ্ছে...");
-    
-    const gridContainer = document.getElementById(this.config.gridContainerId);
-    if (!gridContainer) {
-      console.error(`❌ গ্রিড কনটেইনার পাওয়া যায়নি: ${this.config.gridContainerId}`);
+  // ========== আপডেটেড updateGrid (কনফিগ পরিবর্তন চেক সহ) ==========
+  
+  async updateGrid() {
+    // ✅ যদি skip ফ্ল্যাগ সেট করা থাকে, তাহলে রি-রেন্ডার করো না
+    if (this._skipNextGridRender) {
+      console.log("⏭️ গ্রিড রি-রেন্ডার স্কিপ করা হয়েছে (UI আপডেট ইতিমধ্যে হয়েছে)");
+      this._skipNextGridRender = false;
       return;
     }
+    
+    if (this.isProcessing) return;
+    
+    // কনফিগারেশন পরিবর্তন চেক
+    if (this.multiSelect === true) {
+      const currentDay = this.getElementValue(this.config.dayElementId);
+      const currentTime = this.getElementValue(this.config.timeElementId);
+      const currentType = this.getElementValue(this.config.typeElementId);
+      
+      if (this._lastDay !== null && 
+          (this._lastDay !== currentDay || this._lastTime !== currentTime || this._lastType !== currentType)) {
+        console.log("🔄 কনফিগারেশন পরিবর্তন detected, সিলেকশন ক্লিয়ার করা হচ্ছে...");
+        if (this.selectedSerials && this.selectedSerials.length > 0) {
+          await this.clearAllSelections();
+        }
+      }
+      
+      this._lastDay = currentDay;
+      this._lastTime = currentTime;
+      this._lastType = currentType;
+    }
+    
+    const gridContainer = document.getElementById(this.config.gridContainerId);
+    if (!gridContainer) return;
     
     const day = this.getElementValue(this.config.dayElementId);
     const time = this.getElementValue(this.config.timeElementId);
     const type = this.getElementValue(this.config.typeElementId);
     
-    console.log("গ্রিড প্যারামিটার:", { day, time, type });
-    
-    // ভ্যালিডেশন
     if (!day || !time || !type) {
       gridContainer.innerHTML = '<div class="grid-no-selection">দিন, সময় এবং ধরন নির্বাচন করুন</div>';
       return;
     }
+    
+    const nextDateInfo = this.getNextDateByDay(day);
+    const dateString = nextDateInfo.dateString;
+    const displayDate = nextDateInfo.banglaDate;
     
     const range = this.getSerialRange(day, type, time);
     if (!range) {
@@ -610,211 +505,116 @@ class RealTimeGridSystem {
       return;
     }
     
-    const [start, end] = range;
-    const key = `${day}_${time}_${type}`;
-    const pendingData = this.pendingSelections[key] || { user: [], admin: [] };
+    let start, end;
+    if (Array.isArray(range)) { [start, end] = range; }
+    else if (typeof range === 'string') {
+      if (range.includes('-')) {
+        const parts = range.split('-');
+        start = parseInt(parts[0]);
+        end = parseInt(parts[1]);
+      } else {
+        start = 1;
+        end = parseInt(range);
+      }
+    }
     
-    // লোডিং স্টেট
-    gridContainer.innerHTML = '<div class="grid-loading">সিরিয়াল লোড হচ্ছে...</div>';
+    const pendingKey = `${dateString}_${day}_${time}_${type}`;
+    const pendingData = this.pendingSelections[pendingKey] || { user: [], admin: [] };
+    const currentScroll = gridContainer.scrollTop;
     
-    // ছোট ডিলে
-    setTimeout(() => {
-      gridContainer.innerHTML = '';
+    gridContainer.innerHTML = '';
+    
+    const dateHeader = document.createElement('div');
+    dateHeader.className = 'date-header';
+    dateHeader.textContent = `📅 অ্যাপয়েন্টমেন্ট তারিখ: ${displayDate}`;
+    gridContainer.appendChild(dateHeader);
+    
+    for (let serial = start; serial <= end; serial++) {
+      const serialItem = document.createElement('div');
+      serialItem.className = 'serial-item';
+      serialItem.textContent = serial;
+      serialItem.dataset.serial = serial;
+      serialItem.dataset.date = dateString;
       
-      for (let serial = start; serial <= end; serial++) {
-        const serialItem = document.createElement('div');
-        serialItem.className = 'serial-item';
-        serialItem.textContent = serial;
-        serialItem.dataset.serial = serial;
-        serialItem.setAttribute('tabindex', '-1'); // ✅ ট্যাব ফোকাস প্রতিরোধ
-        
-        // ✅ ফোকাস ইভেন্ট হ্যান্ডলার যোগ করুন
-        serialItem.addEventListener('focus', function(e) {
-          this.blur();
-        });
-        
-        const status = this.getSerialStatus(serial, day, time, type, pendingData);
-        
-        // ✅ সঠিকভাবে স্ট্যাটাস অ্যাপ্লাই করুন
-        if (status.isBooked) {
-          serialItem.classList.add('booked');
-          serialItem.style.cursor = 'not-allowed';
-        } 
-        else if (status.isExpiredBooking) {
-          serialItem.classList.add('expired');
-          serialItem.style.cursor = 'pointer';
-        }
-        else if (status.isCurrentUserPending || status.isCurrentAdminPending) {
-          // ✅ শুধুমাত্র আপনার নিজের পেন্ডিং হলুদ হবে
-          serialItem.classList.add('selected');
-          serialItem.style.cursor = 'pointer';
-        }
-        else if (status.isOtherUserPending || status.isAdminPending) {
-          // ✅ অন্য ইউজার/এডমিনের পেন্ডিং নীল হবে
-          serialItem.classList.add('pending');
-          serialItem.style.cursor = 'not-allowed';
-        }
-        else {
-          serialItem.classList.add('available');
-          serialItem.style.cursor = 'pointer';
-        }
-        
-        serialItem.title = status.tooltip;
-        gridContainer.appendChild(serialItem);
+      const status = this.getSerialStatus(serial, day, time, type, dateString, pendingData);
+      
+      if (status.isBooked) {
+        serialItem.classList.add('booked');
+      }
+      else if (this.multiSelect && this.selectedSerials.some(s => s.serial === serial)) {
+        serialItem.classList.add('selected');
+      }
+      else if (status.isCurrentUserPending || status.isCurrentAdminPending) {
+        serialItem.classList.add('selected');
+      }
+      else if (status.isOtherUserPending || status.isAdminPending) {
+        serialItem.classList.add('pending');
+      }
+      else {
+        serialItem.classList.add('available');
       }
       
-      console.log(`✅ গ্রিড আপডেট হয়েছে: ${end - start + 1} টি সিরিয়াল`);
-      
-      if (this.config.onGridUpdate) {
-        this.config.onGridUpdate('grid', { day, time, type, start, end });
-      }
-      
-    }, 100);
+      gridContainer.appendChild(serialItem);
+    }
+    
+    requestAnimationFrame(() => { gridContainer.scrollTop = currentScroll; });
+    
+    if (this.config.onGridUpdate) {
+      this.config.onGridUpdate('grid', { day, time, type, start, end, date: dateString, displayDate });
+    }
   }
 
-  // ==================== সিরিয়াল সিলেকশন ====================
-  async selectSerial(serial) {
-    console.log(`🎯 সিরিয়াল ${serial} সিলেক্ট করা হচ্ছে...`);
-    
-    const day = this.getElementValue(this.config.dayElementId);
-    const time = this.getElementValue(this.config.timeElementId);
-    const type = this.getElementValue(this.config.typeElementId);
-    
-    if (!day || !time || !type) {
-      console.error("❌ সিরিয়াল সিলেক্ট করা যাবে না: দিন/সময়/ধরন নির্বাচন করুন");
-      return;
+  getSerialRange(day, type, time) {
+    if (this.serialRanges[day] && this.serialRanges[day][type] && this.serialRanges[day][type][time]) {
+      return this.serialRanges[day][type][time];
     }
+    return null;
+  }
+
+  getSerialStatus(serial, day, time, type, dateString, pendingData) {
+    const status = {
+      isBooked: false, isOtherUserPending: false, isCurrentUserPending: false,
+      isAdminPending: false, isCurrentAdminPending: false
+    };
     
-    // রেঞ্জ ভ্যালিডেশন
-    const range = this.getSerialRange(day, type, time);
-    if (!range) {
-      console.error("❌ সিরিয়াল রেঞ্জ নেই");
-      return;
-    }
-    
-    const [start, end] = range;
-    if (serial < start || serial > end) {
-      console.error(`❌ সিরিয়াল ${serial} রেঞ্জের বাইরে (${start}-${end})`);
-      return;
-    }
-    
-    // চেক করা বুকড কিনা
-    const appointment = this.appointments.find(app => {
+    const key = `${dateString}_${day}`;
+    const dayAppointments = this.appointments[key] || [];
+    const appointment = dayAppointments.find(app => {
       const patientType = app.patientType || app.type;
-      return app.day === day &&
-             app.time === time &&
-             patientType === type &&
-             app.serial === serial;
+      return app.time === time && patientType === type && app.serial === serial;
     });
+    if (appointment) status.isBooked = true;
     
-    if (appointment) {
-      let isExpired = false;
-      if (appointment.timestamp && appointment.timestamp.toDate) {
-        const appointmentDate = appointment.timestamp.toDate();
-        const fourDaysAgo = new Date();
-        fourDaysAgo.setDate(fourDaysAgo.getDate() - 4);
-        
-        if (appointmentDate < fourDaysAgo) {
-          isExpired = true;
+    if (!status.isBooked) {
+      if (this.currentUserPendingSerial === serial) status.isCurrentUserPending = true;
+      else if (pendingData.user && pendingData.user.some(p => p.serial === serial)) status.isOtherUserPending = true;
+      
+      if (pendingData.admin && pendingData.admin.some(p => p.serial === serial)) {
+        status.isAdminPending = true;
+        const adminPending = pendingData.admin.find(p => p.serial === serial);
+        if (adminPending && adminPending.adminId === this.config.adminSessionId) {
+          status.isCurrentAdminPending = true;
         }
       }
-      
-      if (!isExpired) {
-        console.log(`❌ সিরিয়াল ${serial} ইতিমধ্যে বুক করা হয়েছে`);
-        
-        if (this.config.onSerialClick) {
-          this.config.onSerialClick({
-            serial,
-            day,
-            time,
-            type,
-            status: 'booked',
-            message: 'এই সিরিয়ালটি ইতিমধ্যে বুক করা হয়েছে'
-          });
-        }
-        return;
-      }
     }
-    
-    // আগের পেন্ডিং সিলেকশন রিমুভ
-    if (this.userPendingId) {
-      await this.removePendingSelection(this.userPendingId);
-    }
-    
-    // নতুন পেন্ডিং সিলেকশন অ্যাড
-    this.userPendingId = await this.addPendingSelection(serial, day, time, type);
-    
-    if (this.userPendingId) {
-      this.currentSelection = serial;
-      this.currentUserPendingSerial = serial; // ✅ বর্তমান ইউজারের সিরিয়াল ট্র্যাক করুন
-      
-      // সিলেক্টেড ইনপুট আপডেট
-      const selectedInput = document.getElementById(this.config.selectedSerialInputId);
-      if (selectedInput) {
-        selectedInput.value = serial;
-        // ✅ ইনপুট ফোকাস হলে স্ক্রোল হতে পারে, তাই blur করুন
-        setTimeout(() => {
-          selectedInput.blur();
-        }, 10);
-      }
-      
-      console.log(`✅ সিরিয়াল ${serial} সিলেক্ট হয়েছে, পেন্ডিং ID: ${this.userPendingId}`);
-      
-      // গ্রিড আপডেট
-      this.updateGrid();
-      
-      // কলব্যাক কল
-      if (this.config.onSerialClick) {
-        this.config.onSerialClick({
-          serial,
-          day,
-          time,
-          type,
-          status: 'pending',
-          pendingId: this.userPendingId,
-          message: 'সিরিয়াল সফলভাবে নির্বাচিত হয়েছে'
-        });
-      }
-    }
+    return status;
   }
 
-  async addPendingSelection(serial, day, time, type) {
-    if (!this.config.db) {
-      console.error("❌ ডাটাবেজ নেই");
-      return null;
-    }
-    
+  async addPendingSelection(serial, day, time, type, dateString) {
+    if (!this.config.db) return null;
     try {
+      const expiryTime = this.config.mode === 'admin' ? this.config.adminPendingExpiry : this.config.userPendingExpiry;
       const pendingData = {
-        serial: serial,
-        day: day,
-        time: time,
-        type: type,
+        serial, day, time, type, appointmentDate: dateString,
         bookedBy: this.config.mode,
         timestamp: firebase.firestore.FieldValue.serverTimestamp(),
-        expiresAt: new Date(Date.now() + (
-          this.config.mode === 'admin' ? 
-          this.config.adminPendingExpiry : 
-          this.config.userPendingExpiry
-        ))
+        expiresAt: new Date(Date.now() + expiryTime)
       };
-      
-      if (this.config.mode === 'admin') {
+      if (this.config.mode === 'admin' && this.config.adminSessionId) {
         pendingData.adminId = this.config.adminSessionId;
-        pendingData.sessionId = this.config.adminSessionId;
       }
-      
-      const docRef = await this.config.db
-        .collection(this.config.pendingSelectionsCollection)
-        .add(pendingData);
-      
-      console.log(`📝 পেন্ডিং সিলেকশন অ্যাড করা হয়েছে: ${docRef.id}`);
-      
-      // ✅ বর্তমান ইউজারের সিরিয়াল সেট করুন
-      this.currentUserPendingSerial = serial;
-      
+      const docRef = await this.config.db.collection(this.config.pendingSelectionsCollection).add(pendingData);
       return docRef.id;
-      
     } catch (error) {
       console.error("❌ পেন্ডিং সিলেকশন অ্যাড করতে সমস্যা:", error);
       return null;
@@ -823,70 +623,113 @@ class RealTimeGridSystem {
 
   async removePendingSelection(pendingId) {
     if (!this.config.db || !pendingId) return;
-    
     try {
-      await this.config.db
-        .collection(this.config.pendingSelectionsCollection)
-        .doc(pendingId)
-        .delete();
-      
-      this.userPendingId = null;
-      this.currentUserPendingSerial = null; // ✅ রিসেট করুন
-      console.log(`✅ পেন্ডিং সিলেকশন রিমুভ হয়েছে: ${pendingId}`);
-      
+      await this.config.db.collection(this.config.pendingSelectionsCollection).doc(pendingId).delete();
     } catch (error) {
       console.error("❌ পেন্ডিং সিলেকশন রিমুভ করতে সমস্যা:", error);
     }
   }
 
-  // ==================== অতিরিক্ত মেথড ====================
-  getAvailableSerials() {
-    const day = this.getElementValue(this.config.dayElementId);
-    const time = this.getElementValue(this.config.timeElementId);
-    const type = this.getElementValue(this.config.typeElementId);
-    const range = this.getSerialRange(day, type, time);
-    
-    if (!range) return [];
-    
-    const [start, end] = range;
-    const available = [];
-    
-    for (let serial = start; serial <= end; serial++) {
-      const key = `${day}_${time}_${type}`;
-      const pendingData = this.pendingSelections[key] || { user: [], admin: [] };
-      const status = this.getSerialStatus(serial, day, time, type, pendingData);
-      
-      if (!status.isBooked && !status.isOtherUserPending && !status.isAdminPending) {
-        available.push(serial);
-      }
+  safeUpdateGrid() {
+    if (this.isProcessing) {
+      setTimeout(() => this.safeUpdateGrid(), 100);
+      return;
     }
-    
-    return available;
+    this.updateGrid();
   }
 
-  forceUpdate() {
-    this.updateGrid();
+  // ========== মাল্টি সিলেক্ট হেল্পার মেথড ==========
+  
+  getSelectedSerials() {
+    return this.selectedSerials.map(s => s.serial);
+  }
+  
+  getAllSelectedSerials() {
+    return this.selectedSerials.map(s => s.serial);
+  }
+  
+  getAllSelectedSerialsWithDetails() {
+    return [...this.selectedSerials];
+  }
+  
+  getSerialsForPatient(patientIndex) {
+    return this.selectedSerials.filter(s => s.patientIndex === patientIndex).map(s => s.serial);
+  }
+  
+  setCurrentPatientIndex(index) {
+    this.currentPatientIndex = index;
+    console.log(`👤 বর্তমান রোগী সেট: ${index}`);
+  }
+  
+  async clearAllSelections() {
+    console.log("🗑️ সব সিলেকশন ক্লিয়ার করা হচ্ছে...");
+    this._skipNextGridRender = true;
+    
+    for (const selected of this.selectedSerials) {
+      if (selected.pendingId) {
+        await this.removePendingSelection(selected.pendingId);
+      }
+      const element = document.querySelector(`.serial-item[data-serial="${selected.serial}"]`);
+      if (element) {
+        element.classList.remove('selected');
+        element.classList.add('available');
+      }
+    }
+    this.selectedSerials = [];
+    
+    const selectedInput = document.getElementById(this.config.selectedSerialInputId);
+    if (selectedInput) selectedInput.value = '';
+    
+    this._skipNextGridRender = false;
+    
+    if (typeof updateAllSerialDisplays === 'function') {
+      updateAllSerialDisplays();
+    }
+  }
+  
+  async removeSerial(serial, patientIndex) {
+    const index = this.selectedSerials.findIndex(s => s.serial === serial && s.patientIndex === patientIndex);
+    if (index !== -1) {
+      this._skipNextGridRender = true;
+      
+      const element = document.querySelector(`.serial-item[data-serial="${serial}"]`);
+      if (element) {
+        element.classList.remove('selected');
+        element.classList.add('available');
+      }
+      
+      if (this.selectedSerials[index].pendingId) {
+        await this.removePendingSelection(this.selectedSerials[index].pendingId);
+      }
+      this.selectedSerials.splice(index, 1);
+      
+      this._skipNextGridRender = false;
+      return true;
+    }
+    return false;
   }
 
   cleanup() {
     this.realtimeListeners.forEach(unsubscribe => {
-      if (typeof unsubscribe === 'function') {
-        unsubscribe();
-      }
+      if (typeof unsubscribe === 'function') unsubscribe();
     });
-    
-    if (this.userPendingId) {
-      this.removePendingSelection(this.userPendingId);
+    const gridContainer = document.getElementById(this.config.gridContainerId);
+    if (gridContainer) {
+      gridContainer.removeEventListener('click', this.handleGridClick);
     }
-    
+    if (this.multiSelect && this.selectedSerials.length > 0) {
+      this.selectedSerials.forEach(async (selected) => {
+        if (selected.pendingId) await this.removePendingSelection(selected.pendingId);
+      });
+    }
+    if (this.userPendingId) this.removePendingSelection(this.userPendingId);
     console.log("🧹 Grid System ক্লিনআপ সম্পন্ন");
   }
 }
 
-// গ্লোবাল এক্সপোর্ড
 if (typeof window !== 'undefined') {
   window.RealTimeGridSystem = RealTimeGridSystem;
   console.log("✅ RealTimeGridSystem উইন্ডো অবজেক্টে রেজিস্টার হয়েছে");
 }
 
-console.log("📦 grid.js লোড সম্পন্ন");
+console.log("📅 grid.js লোড সম্পন্ন");

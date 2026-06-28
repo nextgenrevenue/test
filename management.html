@@ -6,6 +6,17 @@
   <title>সিরিয়াল ম্যানেজমেন্ট</title>
   <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Bengali:wght@400;500;600;700&display=swap" rel="stylesheet">
   
+  <link rel="icon" type="image/x-icon" href="favicon.ico">
+  <link rel="manifest" href="/manifest.json">
+  <meta name="theme-color" content="#007bff">
+  <script src="/pwa.js" defer></script>
+
+  <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-analytics-compat.js"></script>
+  
+  <script src="/config.js"></script>
+  
 <style>
     :root {
       --primary: #2563eb;
@@ -977,17 +988,7 @@
   <script src="components-inline.js"></script>
 
 <script>
-    // ==================== FIREBASE CONFIGURATION ====================
-    const firebaseConfig = {
-      apiKey: "AIzaSyCUGkcHFSYVmA0KUSRHhY-ZFFAS6jpJe4M",
-      authDomain: "doctor-appointment-syste-23828.firebaseapp.com",
-      projectId: "doctor-appointment-syste-23828",
-      storageBucket: "doctor-appointment-syste-23828.appspot.com",
-      messagingSenderId: "79600391014",
-      appId: "1:79600391014:web:9688db8bb62f431ae16ea7"
-    };
 
-    let db;
     let realtimeListeners = [];
     let serialManager = null;
     let adminPendingSelections = {};
@@ -1011,7 +1012,7 @@
       const loginTime = sessionStorage.getItem('loginTime');
       
       if (!isLoggedIn) {
-        alert('দয়া করে প্রথমে লগইন করুন!');
+        alert('Please login first!!');
         window.location.href = '/login';
         return false;
       }
@@ -1021,7 +1022,7 @@
       
       if (currentTime - parseInt(loginTime) > sessionDuration) {
         sessionStorage.clear();
-        alert('সেশন মেয়াদ শেষ! দয়া করে আবার লগইন করুন।');
+        alert('Session expired! Please login again.');
         window.location.href = '/login';
         return false;
       }
@@ -1066,60 +1067,127 @@
       }
       
       async loadSerialRanges() {
-        try {
-          if (!this.db) {
-            console.error('Firebase not initialized');
-            return;
+  try {
+    if (!this.db) return;
+    
+    const doc = await this.db.collection('settings').doc('serialRanges').get();
+    if (doc.exists) {
+      const rawData = doc.data();
+      
+      console.log('🔍 Raw data from Firebase:', JSON.stringify(rawData));
+      
+      let needDatabaseUpdate = false; // ডাটাবেজে ব্যাক-আপডেট করার ফ্ল্যাগ
+      
+      // 🔧 কমা/হাইফেন কে অ্যারেতে রূপান্তর
+      for (const day in rawData) {
+        if (!rawData[day]) continue;
+        for (const type in rawData[day]) {
+          if (!rawData[day][type]) continue;
+          for (const time in rawData[day][type]) {
+            let val = rawData[day][type][time];
+            console.log(`📌 Before conversion: ${day} ${type} ${time} =`, val, typeof val);
+            
+            if (typeof val === 'string') {
+              needDatabaseUpdate = true; // যেহেতু স্ট্রিং পাওয়া গেছে, ডাটাবেজ আপডেট করতে হবে
+              
+              if (val.includes('-')) {
+                const parts = val.split('-');
+                rawData[day][type][time] = [parseInt(parts[0]), parseInt(parts[1])];
+                console.log(`✅ Converted range: ${val} → [${parseInt(parts[0])}, ${parseInt(parts[1])}]`);
+              } 
+              else if (val.includes(',')) {
+                const parts = val.split(',');
+                rawData[day][type][time] = [parseInt(parts[0]), parseInt(parts[1])];
+                console.log(`✅ Converted comma: ${val} → [${parseInt(parts[0])}, ${parseInt(parts[1])}]`);
+              } 
+              else {
+                const single = parseInt(val);
+                rawData[day][type][time] = [1, isNaN(single) ? 10 : single]; // নিরাপদ ব্যাকআপ
+                console.log(`✅ Converted single: ${val} → [1, ${single}]`);
+              }
+            }
+            else if (Array.isArray(val)) {
+              // নিশ্চিত করা যে অ্যারের ভেতরের ভ্যালুগুলো স্ট্রিং না হয়ে নাম্বার (Integer) আছে
+              rawData[day][type][time] = [parseInt(val[0]) || 1, parseInt(val[1]) || 10];
+              console.log(`✅ Validated array: [${rawData[day][type][time][0]}, ${rawData[day][type][time][1]}]`);
+            }
+            
+            console.log(`📌 After conversion: ${day} ${type} ${time} =`, rawData[day][type][time]);
           }
-          
-          const doc = await this.db.collection('settings').doc('serialRanges').get();
-          if (doc.exists) {
-            this.serialRanges = doc.data();
-            console.log('Loaded serial ranges:', this.serialRanges);
-            if (!this.serialRanges.Thursday) this.serialRanges.Thursday = {};
-            if (!this.serialRanges.Friday) this.serialRanges.Friday = {};
-          } else {
-            // Create default if not exists
-            this.serialRanges = { Thursday: {}, Friday: {} };
-            await this.db.collection('settings').doc('serialRanges').set(this.serialRanges);
-            console.log('Created default serial ranges');
-          }
-          
-          this.updateTimeFilterOptions();
-          
-        } catch (error) {
-          console.error('Error loading serial ranges:', error);
-          this.showAlert('সিরিয়াল রেঞ্জ লোড করতে সমস্যা হয়েছে', 'error');
         }
       }
       
-      async loadAppointments() {
-        try {
-          if (!this.db) return;
-          
-          const listener = this.db.collection('appointments')
-            .orderBy('timestamp', 'desc')
-            .onSnapshot(snapshot => {
-              this.appointments = [];
-              snapshot.forEach(doc => {
-                this.appointments.push({
-                  id: doc.id,
-                  ...doc.data()
-                });
-              });
-              
-              this.loadSerialTable();
-              this.updateStats();
-            }, error => {
-              console.error('Error loading appointments:', error);
-            });
-          
-          this.realtimeListeners.push(listener);
-          
-        } catch (error) {
-          console.error('Error loading appointments:', error);
-        }
+      this.serialRanges = rawData;
+      console.log('✅ Final serialRanges Object:', this.serialRanges);
+      
+      // 🔥 যদি ফায়ারবেসে পুরোনো কোন স্ট্রিং ডাটা থেকে থাকে, তবে তাকে অটো অ্যারেতে রূপান্তর করে ফায়ারবেসে পার্মানেন্টলি সেভ করে দেবে
+      if (needDatabaseUpdate) {
+        await this.db.collection('settings').doc('serialRanges').set(this.serialRanges);
+        console.log('💾 Database automatically fixed and updated with true Arrays!');
       }
+
+      this.updateTimeFilterOptions();
+    } else {
+      this.serialRanges = { Thursday: {}, Friday: {} };
+      await this.db.collection('settings').doc('serialRanges').set(this.serialRanges);
+    }
+  } catch (error) {
+    console.error('❌ Error loading serial ranges:', error);
+    this.showAlert('সিরিয়াল রেঞ্জ লোড করতে সমস্যা হয়েছে', 'error');
+  }
+}
+      
+      async loadAppointments() {
+  try {
+    if (!this.db) return;
+    
+    // বর্তমান সপ্তাহের সীমানা নির্ধারণ (শনিবার থেকে শুক্রবার)
+    const now = new Date();
+    const today = now.getDay(); // 0 = Sunday, 6 = Saturday
+    
+    // এই সপ্তাহের শনিবার খুঁজে বের করুন
+    let startOfWeek = new Date(now);
+    if (today === 6) { // আজ শনিবার
+      startOfWeek.setHours(0, 0, 0, 0);
+    } else {
+      const daysSinceSaturday = (today + 1) % 7; // শনিবার থেকে কতদিন গেছে
+      startOfWeek.setDate(now.getDate() - daysSinceSaturday);
+      startOfWeek.setHours(0, 0, 0, 0);
+    }
+    
+    // এই সপ্তাহের শুক্রবার (পরের শুক্রবার)
+    let endOfWeek = new Date(startOfWeek);
+    endOfWeek.setDate(startOfWeek.getDate() + 6); // শনিবার + 6 দিন = শুক্রবার
+    endOfWeek.setHours(23, 59, 59, 999);
+    
+    console.log('Current week range:', startOfWeek, 'to', endOfWeek);
+    
+    const listener = this.db.collection('appointments')
+      .where('timestamp', '>=', startOfWeek)
+      .where('timestamp', '<=', endOfWeek)
+      .orderBy('timestamp', 'desc')
+      .onSnapshot(snapshot => {
+        this.appointments = [];
+        snapshot.forEach(doc => {
+          this.appointments.push({
+            id: doc.id,
+            ...doc.data()
+          });
+        });
+        
+        console.log(`Loaded ${this.appointments.length} appointments for current week`);
+        this.loadSerialTable();
+        this.updateStats();
+      }, error => {
+        console.error('Error loading appointments:', error);
+      });
+    
+    this.realtimeListeners.push(listener);
+    
+  } catch (error) {
+    console.error('Error loading appointments:', error);
+  }
+}
       
       async loadAllPendingSelections() {
         try {
@@ -1452,8 +1520,8 @@
         document.getElementById('serialModal').style.display = 'flex';
       }
       
-      async deleteSerial(day, type, time) {
-        if (!confirm(`আপনি কি ${day === 'Thursday' ? 'বৃহস্পতিবার' : 'শুক্রবার'} ${time} সময়ের ${type === 'new' ? 'নতুন' : 'পুরাতন'} রোগীর সিরিয়াল মুছতে চান?`)) {
+async deleteSerial(day, type, time) {
+        if (!confirm(`আপনি কি ${day === 'Thursday' ? 'বৃহস্পতিবার' : 'শুক্রবার'} ${time} সময়ের ${type === 'new' ? 'নতুন' : 'পুরাতন'} রোগীর সিরিয়াল মুছতে চান?`)) {
           return;
         }
         
@@ -1483,10 +1551,11 @@
             delete this.disabledSlots[key];
             localStorage.setItem('disabledSerialSlots', JSON.stringify(this.disabledSlots));
             
-            // Also remove from Firebase
+            // Also remove from Firebase (মার্জ ট্রু সম্পূর্ণ বাদ দিয়ে)
             if (this.db) {
               try {
-                await this.db.collection('settings').doc('disabledSlots').set(this.disabledSlots, { merge: true });
+                await this.db.collection('settings').doc('disabledSlots').set(this.disabledSlots);
+                console.log('✅ স্লট সফলভাবে এনাবল হয়েছে');
               } catch (error) {
                 console.error('Error saving disabled slots:', error);
               }
@@ -1532,11 +1601,15 @@
         }
       }
       
+      // ✅ FIXED: প্যারামিটার সিকোয়েন্স এবং ফায়ারবেস আপডেট লুপ-ফ্রি ফিক্স
       async toggleSlot(day, type, time, enable) {
+        // প্যারামিটারের সাথে কি (Key) ফরমেট মিলানো হলো: দিন_সময়_টাইপ
         const key = `${day}_${time}_${type}`;
         
         if (enable) {
-          delete this.disabledSlots[key];
+          if (this.disabledSlots[key] !== undefined) {
+            delete this.disabledSlots[key];
+          }
           console.log('Enabled slot:', key);
           this.showAlert(`${day === 'Thursday' ? 'বৃহস্পতিবার' : 'শুক্রবার'} - ${time} (${type === 'new' ? 'নতুন রোগী' : 'পুরাতন রোগী'}) এনাবল করা হয়েছে`, 'success');
         } else {
@@ -1548,10 +1621,10 @@
         // Save to localStorage
         localStorage.setItem('disabledSerialSlots', JSON.stringify(this.disabledSlots));
         
-        // ✅ FIXED: Save to Firebase to persist across refreshes
+        // ✅ FIXED: { merge: true } সম্পূর্ণ বাদ দেওয়া হয়েছে যেন রিয়েল-টাইমে সচল/এনাবল কাজ করে
         if (this.db) {
           try {
-            await this.db.collection('settings').doc('disabledSlots').set(this.disabledSlots, { merge: true });
+            await this.db.collection('settings').doc('disabledSlots').set(this.disabledSlots);
             console.log('Saved disabled slots to Firebase:', this.disabledSlots);
           } catch (error) {
             console.error('Error saving disabled slots to Firebase:', error);
@@ -1623,7 +1696,7 @@
           // ✅ FIXED: Add/update new entry
           if (!this.serialRanges[day]) this.serialRanges[day] = {};
           if (!this.serialRanges[day][type]) this.serialRanges[day][type] = {};
-          this.serialRanges[day][type][time] = [start, end];
+          this.serialRanges[day][type][time] = `${start}-${end}`;
           
           console.log('Updated serialRanges:', this.serialRanges);
           
@@ -1756,38 +1829,53 @@
 
     document.addEventListener('DOMContentLoaded', function() {
       // ১. প্রথমে কম্পোনেন্ট লোড করুন
-      ComponentLoader.loadAllComponents('সিরিয়াল ম্যানেজমেন্ট');
+      if (typeof ComponentLoader !== 'undefined') {
+        ComponentLoader.loadAllComponents('সিরিয়াল ম্যানেজমেন্ট');
+      }
       
       // ২. তারপর authentication চেক করুন
       if (!checkAuthentication()) {
         return;
       }
       
-      // ৩. Firebase ইনিশিয়ালাইজ
-      if (initializeFirebase()) {
-        // ৪. Serial Manager শুরু করুন
-        setTimeout(() => {
-          serialManager = new SerialManagement();
-          console.log('✅ Serial Management initialized');
+      // ৩. 🔥 ফিক্সড: config.js থেকে গ্লোবাল db ও analytics রেডি হওয়া নিশ্চিত করার ইন্টারভাল লুপ
+      let checkDbInterval = setInterval(() => {
+        if (typeof initializeFirebase === 'function') {
+          const isInitialized = initializeFirebase(); // config.js থেকে ফায়ারবেস রান হবে
           
-          // ডিবাগিং জন্য
-          window.serialManager = serialManager;
-        }, 500);
-      }
+          if (isInitialized && typeof db !== 'undefined' && db) {
+            clearInterval(checkDbInterval); // লুপ বন্ধ
+            console.log("🚀 Firebase DB & Analytics Linked to Management successfully!");
+            
+            // গুগলের অ্যানালিটিক্স ট্র্যাকিং ইভেন্ট (ম্যানেজমেন্ট পেজ ভিউ)
+            if (typeof analytics !== 'undefined' && analytics) {
+              firebase.analytics().logEvent('serial_management_view');
+            }
+
+            // ৪. Serial Manager শুরু করুন (ডাটাবেজ পুরোপুরি কানেক্ট হওয়ার পর)
+            serialManager = new SerialManagement();
+            console.log('✅ Serial Management Class Initialized');
+            
+            // ডিবাগিং এর জন্য গ্লোবাল উইন্ডোতে রাখা হলো
+            window.serialManager = serialManager;
+          }
+        }
+      }, 100);
     });
 
-    // ==================== CLEANUP ====================
-    window.addEventListener('beforeunload', function() {
-      if (serialManager) {
+// ==================== CLEANUP ====================\n
+    window.addEventListener('pagehide', function() {
+      if (serialManager && typeof serialManager.destroy === 'function') {
         serialManager.destroy();
       }
       
-      if (realtimeListeners.length > 0) {
+      if (typeof realtimeListeners !== 'undefined' && realtimeListeners.length > 0) {
         realtimeListeners.forEach(unsubscribe => {
           if (unsubscribe && typeof unsubscribe === 'function') {
             unsubscribe();
           }
         });
+        console.log("🛑 ম্যানেজমেন্ট পেজের সব লিসেনার বন্ধ করা হয়েছে");
       }
     });
   </script>

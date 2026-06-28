@@ -1,0 +1,6 @@
+[build]
+  functions = "netlify/functions"
+
+[[scheduled_functions]]
+  function = "check-schedule"
+  schedule = "*/1 * * * *"

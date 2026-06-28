@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>প্রোফাইল আপডেট</title>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+  
+  <link rel="icon" type="image/x-icon" href="favicon.ico">
+  <link rel="manifest" href="/manifest.json">
+  <meta name="theme-color" content="#007bff">
+  <script src="/pwa.js" defer></script>
+
+  <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.22.1/firebase-analytics-compat.js"></script>
+  
+  <script src="/config.js"></script>
+  <script src="components-inline.js"></script>
+
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'Noto Sans Bengali', sans-serif; background: #f0f4f8; }
+    
+    .profile-page {
+      max-width: 600px;
+      margin: 80px auto 40px;
+      padding: 0 20px;
+    }
+    
+    .profile-card {
+      background: white;
+      border-radius: 16px;
+      padding: 32px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.06);
+    }
+    
+    .profile-card h2 {
+      font-size: 24px;
+      color: #0f172a;
+      margin-bottom: 24px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      border-bottom: 2px solid #e2e8f0;
+      padding-bottom: 12px;
+    }
+    
+    .profile-card h2 i { color: #2563eb; }
+    
+    .form-group { margin-bottom: 20px; }
+    
+    .form-group label {
+      display: block;
+      font-size: 14px;
+      font-weight: 500;
+      color: #475569;
+      margin-bottom: 8px;
+    }
+    
+    .input-wrapper { position: relative; }
+    
+    .input-wrapper i {
+      position: absolute;
+      left: 14px;
+      top: 50%;
+      transform: translateY(-50%);
+      color: #94a3b8;
+      font-size: 16px;
+    }
+    
+    .form-control {
+      width: 100%;
+      padding: 12px 14px 12px 42px;
+      font-size: 15px;
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+      outline: none;
+      transition: all 0.2s;
+      color: #334155;
+    }
+    
+    .form-control:focus {
+      border-color: #2563eb;
+      box-shadow: 0 0 0 3px rgba(37,99,235,0.1);
+    }
+    
+    .form-control:disabled {
+      background: #f1f5f9;
+      color: #64748b;
+      cursor: not-allowed;
+    }
+    
+    select.form-control { padding-left: 42px; appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%2394a3b8'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 14px center; background-size: 16px; }
+    
+    .profile-actions {
+      display: flex;
+      gap: 12px;
+      margin-top: 28px;
+    }
+    
+    .btn {
+      flex: 1;
+      padding: 12px;
+      font-size: 15px;
+      font-weight: 500;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: all 0.2s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+    }
+    
+    .btn-primary { background: #2563eb; color: white; }
+    .btn-primary:hover { background: #1d4ed8; }
+    
+    .btn-secondary { background: #e2e8f0; color: #475569; }
+    .btn-secondary:hover { background: #cbd5e1; }
+    
+    #profileMsg {
+      padding: 12px;
+      border-radius: 8px;
+      margin-bottom: 20px;
+      font-size: 14px;
+      display: none;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+
+  <div id="header-container"></div>
+
+  <div class="profile-page">
+    <div class="profile-card">
+      <h2><i class="fa-solid id-card"></i> প্রোফাইল তথ্য</h2>
+      
+      <div id="profileMsg"></div>
+      
+      <form id="profileForm">
+        <div class="form-group">
+          <label>মোবাইল নম্বর (পরিবর্তনযোগ্য নয়)</label>
+          <div class="input-wrapper">
+            <i class="fa-solid fa-phone"></i>
+            <input type="text" id="profilePhone" class="form-control" disabled>
+          </div>
+        </div>
+        
+        <div class="form-group">
+          <label>আপনার নাম</label>
+          <div class="input-wrapper">
+            <i class="fa-solid fa-user"></i>
+            <input type="text" id="profileName" class="form-control" placeholder="আপনার নাম লিখুন">
+          </div>
+        </div>
+        
+        <div class="form-group">
+          <label>বয়স</label>
+          <div class="input-wrapper">
+            <i class="fa-solid fa-calendar-day"></i>
+            <input type="number" id="profileAge" class="form-control" placeholder="আপনার বয়স লিখুন">
+          </div>
+        </div>
+        
+        <div class="form-group">
+          <label>লিঙ্গ</label>
+          <div class="input-wrapper">
+            <i class="fa-solid fa-venus-mars"></i>
+            <select id="profileGender" class="form-control">
+              <option value="">বাছাই করুন</option>
+              <option value="Male">পুরুষ</option>
+              <option value="Female">মহিলা</option>
+              <option value="Other">অন্যান্য</option>
+            </select>
+          </div>
+        </div>
+        
+        <div class="profile-actions">
+          <button type="button" id="cancelProfileBtn" class="btn btn-secondary">
+            <i class="fa-solid fa-xmark"></i> বাতিল
+          </button>
+          <button type="submit" class="btn btn-primary">
+            <i class="fa-solid fa-floppy-disk"></i> সংরক্ষণ করুন
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <div id="footer-container"></div>
+
+  <script>
+    // =======================================================
+    // INITIALIZATION & TIMING SAFEGUARD LOOP
+    // =======================================================
+    document.addEventListener('DOMContentLoaded', function() {
+      // ১. প্রথমে কম্পোনেন্ট লোডার চালু করুন
+      if (typeof ComponentLoader !== 'undefined' && typeof ComponentLoader.loadAllComponents === 'function') {
+        ComponentLoader.loadAllComponents('প্রোফাইল');
+      }
+
+      // ২. 🔥 ফিক্সড সেফগার্ড লুপ: config.js এর গ্লোবাল db পুরোপুরি রেডি হওয়া পর্যন্ত অপেক্ষা করবে
+      let checkDbInterval = setInterval(() => {
+        if (typeof initializeFirebase === 'function') {
+          const isInitialized = initializeFirebase(); // config.js থেকে ফায়ারবেস রান হবে
+          
+          if (isInitialized && typeof db !== 'undefined' && db) {
+            clearInterval(checkDbInterval); // লুপ বন্ধ
+            console.log("🚀 Firebase DB & Analytics Linked to Profile page successfully!");
+            
+            // গুগলের অ্যানালিটিক্স কাস্টম ইভেন্ট ট্র্যাকিং
+            if (typeof analytics !== 'undefined' && analytics) {
+              firebase.analytics().logEvent('profile_view');
+            }
+
+            // ডাটাবেজ রেডি হওয়ার পর প্রোফাইল ডাটা লোড ও সাবমিট ইভেন্ট লিসেনার চালু হবে
+            setupProfileLogic();
+          }
+        }
+      }, 100); // প্রতি ১০০ মিলি-সেকেন্ড পর পর ব্যাকগ্রাউন্ডে চেক করবে
+    });
+
+    // প্রোফাইলের মূল লজিক ফাংশন
+    function setupProfileLogic() {
+      // সেশন থেকে ডাটা রিড
+      const phone = sessionStorage.getItem('userPhone') || localStorage.getItem('userPhone');
+      if (!phone) {
+        Swal.fire('ত্রুটি!', 'লগইন সেশন পাওয়া যায়নি। দয়া করে আবার লগইন করুন।', 'error').then(() => {
+          window.location.href = 'login.html';
+        });
+        return;
+      }
+      
+      document.getElementById('profilePhone').value = phone;
+      
+      // ফায়ারবেস থেকে প্রোফাইল ডাটা লোড করা
+      if (typeof ComponentLoader !== 'undefined' && typeof ComponentLoader.loadProfileData === 'function') {
+        ComponentLoader.loadProfileData(phone)
+          .then((data) => {
+            if (data) {
+              if (data.name) document.getElementById('profileName').value = data.name;
+              if (data.age) document.getElementById('profileAge').value = data.age;
+              if (data.gender) document.getElementById('profileGender').value = data.gender;
+              console.log("✅ Profile data successfully rendered from Firebase");
+            }
+          })
+          .catch((err) => {
+            console.error("❌ Profile data fetch error:", err);
+          });
+      }
+      
+      // প্রোফাইল ফর্ম সাবমিট লিসেনার
+      document.getElementById('profileForm').addEventListener('submit', function(e) {
+        e.preventDefault();
+        
+        const name = document.getElementById('profileName').value.trim();
+        const age = document.getElementById('profileAge').value;
+        const gender = document.getElementById('profileGender').value;
+        
+        if (!name) {
+          Swal.fire('সতর্কতা!', 'নাম লিখুন', 'warning');
+          return;
+        }
+        
+        // ComponentLoader এর updateProfile ফাংশন কল
+        if (typeof ComponentLoader !== 'undefined' && typeof ComponentLoader.updateProfile === 'function') {
+          ComponentLoader.updateProfile(name, phone, age, gender)
+            .then((result) => {
+              const msg = document.getElementById('profileMsg');
+              msg.textContent = result.message;
+              msg.style.display = 'block';
+              msg.style.background = '#dcfce7';
+              msg.style.color = '#16a34a';
+              msg.style.border = '1px solid #bbf7d0';
+              
+              Swal.fire('✅ সফল!', result.message, 'success');
+              
+              // অ্যানালিটিক্সে প্রোফাইল আপডেট ট্র্যাকিং
+              if (typeof analytics !== 'undefined' && analytics) {
+                firebase.analytics().logEvent('profile_updated', { phone: phone });
+              }
+              
+              setTimeout(() => {
+                msg.style.display = 'none';
+              }, 3000);
+            })
+            .catch((error) => {
+              const msg = document.getElementById('profileMsg');
+              msg.textContent = error.message || 'আপডেট করতে সমস্যা হয়েছে';
+              msg.style.display = 'block';
+              msg.style.background = '#fee2e2';
+              msg.style.color = '#dc2626';
+              msg.style.border = '1px solid #fecaca';
+              
+              Swal.fire('❌ ত্রুটি!', error.message || 'আপডেট করতে সমস্যা হয়েছে', 'error');
+            });
+        }
+      });
+      
+      // বাতিল বাটন অ্যাকশন লজিক
+      document.getElementById('cancelProfileBtn').addEventListener('click', function() {
+        const savedRole = sessionStorage.getItem('userRole') || 'user';
+        const nextDashboard = (savedRole === 'admin' || savedRole === 'staff') ? 'dashboard.html' : 'userdashboard.html';
+        window.location.href = nextDashboard;
+      });
+    }
+  </script>
+</body>
+</html>
