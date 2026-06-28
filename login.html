@@ -453,19 +453,14 @@
 // ============================================================
 // FIREBASE কনফিগ (শুধু Firestore)
 // ============================================================
-const firebaseConfig = {
-  apiKey: "AIzaSyCUGkcHFSYVmA0KUSRHhY-ZFFAS6jpJe4M",
-  authDomain: "doctor-appointment-syste-23828.firebaseapp.com",
-  projectId: "doctor-appointment-syste-23828",
-  storageBucket: "doctor-appointment-syste-23828.appspot.com",
-  messagingSenderId: "79600391014",
-  appId: "1:79600391014:web:9688db8bb62f431ae16ea7"
-};
-
-if (!firebase.apps.length) {
-  firebase.initializeApp(firebaseConfig);
+let db;
+function initializeFirebase() {
+  if (typeof firebase !== 'undefined' && !firebase.apps.length) {
+    firebase.initializeApp(firebaseConfig);
+  }
+  db = firebase.firestore();
+  return true;
 }
-const db = firebase.firestore();
 
 // ============================================================
 // SMS Gateway (CORS-Free - automas.com.bd)
